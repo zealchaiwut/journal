@@ -6,3 +6,5 @@ credentials.json
 token.json
 inbox/
 logs/
+outputs/
+.morning-run.lock/

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- launchd alternative to the cron entry: runs missed jobs on wake,
+     unlike cron. Install: cp to ~/Library/LaunchAgents, edit the two
+     absolute paths for the target user, then
+     launchctl bootstrap gui/$(id -u) <plist>. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.chaiwut.journal-morning</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/zeal-server/dev/journal/bin/journal-morning-run.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>5</integer>
+        <key>Minute</key>
+        <integer>45</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/zeal-server/dev/journal/logs/morning.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/zeal-server/dev/journal/logs/morning.log</string>
+</dict>
+</plist>
