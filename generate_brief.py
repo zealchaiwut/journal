@@ -157,10 +157,13 @@ def call_claude(system_prompt: str, user_message: str, model: str) -> dict:
         capture_output=True, text=True, timeout=600,
     )
     if result.returncode != 0:
+        dump = os.path.join(REPO_DIR, "logs", "claude_failure.json")
+        os.makedirs(os.path.dirname(dump), exist_ok=True)
+        with open(dump, "w") as f:
+            f.write(result.stdout + "\n--- stderr ---\n" + result.stderr)
         raise RuntimeError(
-            f"claude -p failed (rc={result.returncode}): "
-            f"stderr={result.stderr.strip()[-400:]!r} "
-            f"stdout={result.stdout.strip()[-400:]!r}"
+            f"claude -p failed (rc={result.returncode}), full output in {dump}: "
+            f"stderr={result.stderr.strip()[-200:]!r}"
         )
     envelope = json.loads(result.stdout)
     if envelope.get("is_error"):
