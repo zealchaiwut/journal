@@ -157,8 +157,11 @@ def call_claude(system_prompt: str, user_message: str, model: str) -> dict:
         capture_output=True, text=True, timeout=600,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"claude -p failed (rc={result.returncode}): "
-                           f"{result.stderr.strip()[-500:]}")
+        raise RuntimeError(
+            f"claude -p failed (rc={result.returncode}): "
+            f"stderr={result.stderr.strip()[-400:]!r} "
+            f"stdout={result.stdout.strip()[-400:]!r}"
+        )
     envelope = json.loads(result.stdout)
     if envelope.get("is_error"):
         raise RuntimeError(f"claude -p returned error: {envelope.get('result')!r}")
