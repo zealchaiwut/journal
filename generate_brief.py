@@ -182,6 +182,7 @@ def write_outputs(brief: dict) -> str:
     try:
         with os.fdopen(fd, "w") as f:
             f.write(payload)
+        os.chmod(tmp, 0o644)  # mkstemp defaults to 0600
         os.replace(tmp, latest)  # atomic: Hermes never sees a partial file
     finally:
         if os.path.exists(tmp):
