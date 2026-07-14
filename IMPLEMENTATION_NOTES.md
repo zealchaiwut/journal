@@ -32,9 +32,21 @@ a one-line translation; the contract stays as-is.
 
 - **Timezone**: system TZ verified `+07` (Asia/Bangkok) — cron hour needs no adjustment.
 - **`claude` binary**: `/Users/zeal-server/.local/bin/claude` — NOT on cron's
-  minimal PATH; `bin/journal-morning-run.sh` prepends `~/.local/bin`. Verify
-  non-interactive auth once: `~/.local/bin/claude -p --model sonnet "ping"`
-  from a non-login shell (`ssh zeal-server@mini '…'`).
+  minimal PATH; `bin/journal-morning-run.sh` prepends `~/.local/bin`.
+- **`claude` auth under launchd/cron (IMPORTANT)**: interactive/ssh sessions
+  authenticate via the login Keychain, but a launchd-spawned `claude` cannot
+  refresh the OAuth session there (`Failed to authenticate: OAuth session
+  expired and could not be refreshed` — verified with an env-probe agent;
+  HOME/PATH were fine). Fix: generate a long-lived token once with
+  `claude setup-token` (interactive browser flow) and put
+  `CLAUDE_CODE_OAUTH_TOKEN=<token>` in the repo `.env` on the mini
+  (gitignored; `load_env()` exports it to the `claude` subprocess).
+- **Scheduling is launchd, not cron**: installing a crontab over ssh fails on
+  macOS (`crontab: Interrupted system call` — TCC denies sshd writing
+  /var/at/tabs without Full Disk Access). The launchd agent
+  `com.chaiwut.journal-morning` (05:45) is installed in
+  `~/Library/LaunchAgents` on the mini and also survives sleep better (missed
+  runs fire on wake). The cron line remains documented below if ever wanted.
 - **No `flock` on macOS** — the wrapper uses an atomic `mkdir` lock
   (`.morning-run.lock/`, removed on exit via trap).
 - **Wake**: cron does not wake a sleeping mac. Either keep the mini awake or
