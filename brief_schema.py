@@ -1,4 +1,4 @@
-"""Validation + normalization for the journal -> Hermes brief contract (v1.1).
+"""Validation + normalization for the journal -> Hermes brief contract (v1.2).
 
 Authoritative contract: docs/hermes_journal_brief.contract.md. Field names on
 todo items follow Hermes's native todo_tool schema (id / content / status,
@@ -20,6 +20,9 @@ TODO_STATUS = "pending"
 MIN_CONFIDENCE = 0.4
 
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Stable content-derived todo key: lowercase letters/digits/hyphens, no
+# leading/trailing/doubled hyphen (e.g. "dentist-visit").
+_KEY_SLUG = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 class BriefValidationError(ValueError):
@@ -74,15 +77,18 @@ def normalize_brief(brief: dict) -> dict:
     reflection = brief.get("reflection")
     if isinstance(reflection, dict) and isinstance(reflection.get("markdown"), str):
         reflection["word_count"] = len(reflection["markdown"].split())
+
+    if brief.get("resolved_keys") is None:
+        brief["resolved_keys"] = []
     return brief
 
 
 def validate_brief(brief: dict) -> dict:
-    """Raise BriefValidationError unless `brief` satisfies contract v1.0."""
+    """Raise BriefValidationError unless `brief` satisfies contract v1.2."""
     if not isinstance(brief, dict):
         _err("brief is not an object")
-    if brief.get("schema_version") != "1.1":
-        _err(f"schema_version must be '1.1', got {brief.get('schema_version')!r}")
+    if brief.get("schema_version") != "1.2":
+        _err(f"schema_version must be '1.2', got {brief.get('schema_version')!r}")
     _check_iso_date(brief.get("for_date"), "for_date")
     if not isinstance(brief.get("generated_at"), str) or "T" not in brief["generated_at"]:
         _err("generated_at must be an ISO8601 timestamp string")
@@ -120,6 +126,10 @@ def validate_brief(brief: dict) -> dict:
             _err(f"{where}.id must be a non-empty string")
         if not isinstance(t.get("content"), str) or not t["content"].strip():
             _err(f"{where}.content must be a non-empty string")
+        key = t.get("key")
+        if not isinstance(key, str) or not key or not _KEY_SLUG.match(key):
+            _err(f"{where}.key must be a non-empty lowercase hyphen-slug "
+                 f"(letters/digits/hyphens, no leading/trailing hyphen), got {key!r}")
         if t.get("status") != TODO_STATUS:
             _err(f"{where}.status must be {TODO_STATUS!r}, got {t.get('status')!r}")
         if t.get("category") not in CATEGORIES:
@@ -156,5 +166,16 @@ def validate_brief(brief: dict) -> dict:
             _err(f"{where}.days_active must be a non-negative int")
         if th.get("sentiment") not in SENTIMENTS:
             _err(f"{where}.sentiment invalid: {th.get('sentiment')!r}")
+
+    resolved_keys = brief.get("resolved_keys")
+    if not isinstance(resolved_keys, list):
+        _err("resolved_keys must be a list")
+    for i, rk in enumerate(resolved_keys):
+        where = f"resolved_keys[{i}]"
+        if not isinstance(rk, dict):
+            _err(f"{where}: not an object")
+        for field in ("key", "evidence"):
+            if not isinstance(rk.get(field), str) or not rk[field].strip():
+                _err(f"{where}.{field} must be a non-empty string")
 
     return brief

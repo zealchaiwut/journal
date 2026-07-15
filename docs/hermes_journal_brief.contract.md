@@ -1,4 +1,4 @@
-# Journal → Hermes brief contract (schema v1.1)
+# Journal → Hermes brief contract (schema v1.2)
 
 Interface between the **journal smart server** (this repo, runs on the mac mini)
 and the **Hermes lean client**. One JSON file:
@@ -14,7 +14,7 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "for_date": "2026-07-14",
   "generated_at": "2026-07-14T05:45:00+07:00",
   "source": {
@@ -33,6 +33,7 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
     {
       "id": "jrl-2026-07-14-01",
       "content": "Set up 2 BCG mock case trials with Claude",
+      "key": "bcg-mock-cases",
       "status": "pending",
       "category": "bcg",
       "priority": "high",
@@ -52,6 +53,12 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
       "sentiment": "worry",
       "note": "..."
     }
+  ],
+  "resolved_keys": [
+    {
+      "key": "dentist-visit",
+      "evidence": "entry says the dentist appointment happened this week"
+    }
   ]
 }
 ```
@@ -63,6 +70,7 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
 | `reflection.boost` | one Japanese sentence, spoken register (セリフ) — not a translation of `markdown`, not motivational-poster copy; grounded in something concrete from today's entry |
 | `todos[].id` | unique, `jrl-<for_date>-NN` |
 | `todos[].content` | task text — **Hermes todo_tool field name** (not `text`) |
+| `todos[].key` | content-derived slug, stable across days for the same task (lowercase, hyphenated, 2-3 words, no dates, e.g. `dentist-visit`). Reused from `OPEN_KEYS` when the task recurs; never a `CLOSED_KEYS` duplicate. Server validates the slug pattern (`^[a-z0-9]+(-[a-z0-9]+)*$`) |
 | `todos[].status` | always `"pending"` — Hermes enum: pending / in_progress / completed / cancelled |
 | `todos[].category` | `bcg maguro perf-coach hermes trip finance health running cooking errands general` |
 | `todos[].priority` | `high medium low` — **urgency/deadline/blocking-ness only.** Recurrence does NOT raise priority — a task appearing on many unresolved days is `recurring: true`, not automatically `high`. Advisory; Hermes todo_tool has no priority field (list order = priority), so Hermes should insert high→top |
@@ -70,6 +78,34 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
 | `todos[].due` / `defer_until` | optional ISO dates; omitted unless the journal named one |
 | `threads[].sentiment` | `positive worry tension neutral` |
 | `threads` | 2–5 arcs, merged day-over-day by `key` (prior day's threads are fed back to the model) |
+| `resolved_keys` | array of `{key, evidence}`; always present (may be empty). Populated when `OPEN_KEYS` names a task this window's entries describe as done — the task is dropped from `todos[]` and surfaced here instead so Hermes can close the row |
+| `resolved_keys[].key` | must match a key from the `OPEN_KEYS` input (see below), never invented |
+| `resolved_keys[].evidence` | short paraphrase of what the journal text said, for audit |
+
+## Hermes round-trip inputs (OPEN_KEYS / CLOSED_KEYS)
+
+For todo keys to stay stable across days, Hermes's persistent todo store is
+the source of truth for which keys already exist and which are already
+closed. Before each scheduled run, Hermes is expected to export two plain
+JSON files that this repo reads (mirrors the existing `PRIOR_THREADS`
+round-trip, which is internal to this repo and not written by Hermes):
+
+- `HERMES_OPEN_KEYS_PATH` (default `~/.hermes/contracts/todo-open-keys.json`)
+  — `[{"key": "...", "text": "..."}, ...]`, from
+  `todo_store.get_open_keys()` in the hermes-agent repo.
+- `HERMES_CLOSED_KEYS_PATH` (default `~/.hermes/contracts/todo-closed-keys.json`)
+  — `["key1", "key2", ...]`, from `todo_store.get_closed_keys()`.
+
+Both paths are env-var configurable (see `.env.example`). If a file is
+missing or malformed, this repo treats it as `[]` and proceeds — it never
+blocks brief generation. The actual export mechanism (small CLI vs. file
+write) is Hermes-side, deploy-time wiring and is not specified by this
+contract.
+
+`resolved_keys` (see above) is the signal flowing the other way: a later
+Hermes-side integration reads it and calls
+`todo_store.close_todo(key, "done", source="journal:resolution")` for each
+entry. This repo only produces the signal; consuming it is out of scope here.
 
 ## Hermes-side merge (reference)
 

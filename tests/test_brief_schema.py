@@ -17,7 +17,7 @@ from brief_schema import BriefValidationError, normalize_brief, validate_brief
 BANGKOK = timezone(timedelta(hours=7))
 
 VALID = {
-    "schema_version": "1.1",
+    "schema_version": "1.2",
     "for_date": "2026-07-14",
     "generated_at": "2026-07-14T05:45:00+07:00",
     "source": {"engine": "claude -p --model sonnet", "latest_entry": "2026-07-13",
@@ -28,6 +28,7 @@ VALID = {
                    "word_count": 5},
     "todos": [{
         "id": "jrl-2026-07-14-01", "content": "Set up 2 BCG mock case trials",
+        "key": "bcg-mock-cases",
         "category": "bcg", "priority": "high", "source_dates": ["2026-07-13"],
         "recurring": False, "confidence": 0.92, "status": "pending",
         "origin": "journal", "note": None,
@@ -35,6 +36,7 @@ VALID = {
     "threads": [{"key": "cashflow", "label": "Cashflow / money",
                  "first_seen": "2026-06-29", "days_active": 10,
                  "sentiment": "worry", "note": "recurring"}],
+    "resolved_keys": [],
 }
 
 
@@ -55,6 +57,43 @@ class TestValidate(unittest.TestCase):
 
     def test_rejects_bad_schema_version(self):
         self._expect_fail(lambda b: b.update(schema_version="2.0"))
+
+    def test_rejects_schema_version_1_1(self):
+        self._expect_fail(lambda b: b.update(schema_version="1.1"))
+
+    def test_rejects_schema_version_1_0(self):
+        self._expect_fail(lambda b: b.update(schema_version="1.0"))
+
+    def test_rejects_missing_todo_key(self):
+        self._expect_fail(lambda b: b["todos"][0].pop("key"))
+
+    def test_rejects_uppercase_todo_key(self):
+        self._expect_fail(lambda b: b["todos"][0].update(key="BCG-Mock"))
+
+    def test_rejects_todo_key_with_spaces(self):
+        self._expect_fail(lambda b: b["todos"][0].update(key="bcg mock cases"))
+
+    def test_rejects_todo_key_with_leading_hyphen(self):
+        self._expect_fail(lambda b: b["todos"][0].update(key="-bcg-mock"))
+
+    def test_rejects_todo_key_with_trailing_hyphen(self):
+        self._expect_fail(lambda b: b["todos"][0].update(key="bcg-mock-"))
+
+    def test_rejects_todo_key_with_doubled_hyphen(self):
+        self._expect_fail(lambda b: b["todos"][0].update(key="bcg--mock"))
+
+    def test_rejects_empty_todo_key(self):
+        self._expect_fail(lambda b: b["todos"][0].update(key=""))
+
+    def test_accepts_single_word_todo_key(self):
+        b = copy.deepcopy(VALID)
+        b["todos"][0]["key"] = "dentist"
+        validate_brief(b)
+
+    def test_accepts_multi_hyphen_todo_key(self):
+        b = copy.deepcopy(VALID)
+        b["todos"][0]["key"] = "fix-widget-printer-again"
+        validate_brief(b)
 
     def test_rejects_unknown_category(self):
         self._expect_fail(lambda b: b["todos"][0].update(category="sailing"))
@@ -120,6 +159,58 @@ class TestNormalize(unittest.TestCase):
         b["todos"][0]["status"] = "open"
         validate_brief(normalize_brief(b))
 
+    def test_missing_resolved_keys_normalizes_to_empty_list(self):
+        b = copy.deepcopy(VALID)
+        del b["resolved_keys"]
+        out = normalize_brief(b)
+        self.assertEqual(out["resolved_keys"], [])
+        validate_brief(out)
+
+    def test_null_resolved_keys_normalizes_to_empty_list(self):
+        b = copy.deepcopy(VALID)
+        b["resolved_keys"] = None
+        out = normalize_brief(b)
+        self.assertEqual(out["resolved_keys"], [])
+
+
+class TestResolvedKeys(unittest.TestCase):
+    def test_valid_entries_pass(self):
+        b = copy.deepcopy(VALID)
+        b["resolved_keys"] = [
+            {"key": "dentist-visit", "evidence": "entry says the appointment happened"},
+        ]
+        validate_brief(b)
+
+    def test_not_a_list_fails(self):
+        b = copy.deepcopy(VALID)
+        b["resolved_keys"] = {"key": "dentist-visit", "evidence": "done"}
+        with self.assertRaises(BriefValidationError):
+            validate_brief(b)
+
+    def test_entry_missing_key_fails(self):
+        b = copy.deepcopy(VALID)
+        b["resolved_keys"] = [{"evidence": "entry says it happened"}]
+        with self.assertRaises(BriefValidationError):
+            validate_brief(b)
+
+    def test_entry_missing_evidence_fails(self):
+        b = copy.deepcopy(VALID)
+        b["resolved_keys"] = [{"key": "dentist-visit"}]
+        with self.assertRaises(BriefValidationError):
+            validate_brief(b)
+
+    def test_entry_empty_key_fails(self):
+        b = copy.deepcopy(VALID)
+        b["resolved_keys"] = [{"key": "", "evidence": "entry says it happened"}]
+        with self.assertRaises(BriefValidationError):
+            validate_brief(b)
+
+    def test_entry_empty_evidence_fails(self):
+        b = copy.deepcopy(VALID)
+        b["resolved_keys"] = [{"key": "dentist-visit", "evidence": "   "}]
+        with self.assertRaises(BriefValidationError):
+            validate_brief(b)
+
 
 class TestOutputs(unittest.TestCase):
     def test_atomic_write_and_empty_brief(self):
@@ -130,10 +221,13 @@ class TestOutputs(unittest.TestCase):
                 now = datetime(2026, 7, 14, 5, 45, tzinfo=BANGKOK)
                 brief = generate_brief.empty_brief(
                     now, generate_brief.build_source([], "sonnet"))
+                self.assertEqual(brief["resolved_keys"], [])
                 validate_brief(brief)
                 latest = generate_brief.write_outputs(brief)
                 with open(latest) as f:
-                    self.assertEqual(json.load(f)["for_date"], "2026-07-14")
+                    written = json.load(f)
+                self.assertEqual(written["for_date"], "2026-07-14")
+                self.assertEqual(written["resolved_keys"], [])
                 self.assertTrue(os.path.exists(
                     os.path.join(tmp, "2026-07-14.journal_brief.json")))
                 self.assertEqual(
