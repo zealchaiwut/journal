@@ -45,6 +45,22 @@ def output_dir() -> str:
     return path if os.path.isabs(path) else os.path.join(REPO_DIR, path)
 
 
+def hermes_open_keys_path() -> str:
+    # Hermes is expected to export this file before journal's scheduled run
+    # (via a small CLI or file export on the Hermes side — the actual
+    # cross-repo wiring is deploy-time config, not this repo's concern).
+    # Shape: [{"key": "...", "text": "..."}, ...].
+    return os.path.expanduser(
+        _cfg("HERMES_OPEN_KEYS_PATH", "~/.hermes/contracts/todo-open-keys.json"))
+
+
+def hermes_closed_keys_path() -> str:
+    # Same export expectation as hermes_open_keys_path(). Shape: a flat list
+    # of key strings, e.g. ["key1", "key2", ...].
+    return os.path.expanduser(
+        _cfg("HERMES_CLOSED_KEYS_PATH", "~/.hermes/contracts/todo-closed-keys.json"))
+
+
 def run_fetch() -> None:
     """Best-effort email fetch — a failure never blocks the brief."""
     try:
@@ -89,6 +105,34 @@ def load_prior_threads() -> list:
         return []
 
 
+def load_open_keys() -> list:
+    """Hermes's open todo keys: [{"key": "...", "text": "..."}, ...], or []."""
+    path = hermes_open_keys_path()
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        log.warning("Could not read Hermes open keys: %s", e)
+        return []
+
+
+def load_closed_keys() -> list:
+    """Hermes's closed todo keys: ["key1", "key2", ...], or []."""
+    path = hermes_closed_keys_path()
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        log.warning("Could not read Hermes closed keys: %s", e)
+        return []
+
+
 def build_source(window: list[tuple[str, str]], model: str) -> dict:
     return {
         "engine": f"claude -p --model {model}",
@@ -101,7 +145,7 @@ def build_source(window: list[tuple[str, str]], model: str) -> dict:
 def empty_brief(now: datetime, source: dict) -> dict:
     """Valid brief for a fresh setup with no entries — never crash Hermes."""
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "for_date": now.date().isoformat(),
         "generated_at": now.isoformat(timespec="seconds"),
         "source": source,
@@ -118,12 +162,14 @@ def empty_brief(now: datetime, source: dict) -> dict:
         },
         "todos": [],
         "threads": [],
+        "resolved_keys": [],
     }
 
 
-def build_user_message(now: datetime, window, prior_threads, source, boost_references) -> str:
+def build_user_message(now: datetime, window, prior_threads, source, boost_references,
+                        open_keys, closed_keys) -> str:
     shape = {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "for_date": now.date().isoformat(),
         "generated_at": now.isoformat(timespec="seconds"),
         "source": source,
@@ -135,6 +181,7 @@ def build_user_message(now: datetime, window, prior_threads, source, boost_refer
         "todos": [{
             "id": f"jrl-{now.date().isoformat()}-01",
             "content": "<cleaned imperative task — NOTE: field is `content`, not `text`>",
+            "key": "<stable-slug-see-rules>",
             "category": "<one of the enum>", "priority": "high|medium|low",
             "source_dates": ["YYYY-MM-DD"], "recurring": False,
             "confidence": 0.9, "status": "pending", "origin": "journal",
@@ -144,6 +191,10 @@ def build_user_message(now: datetime, window, prior_threads, source, boost_refer
             "key": "...", "label": "...", "first_seen": "YYYY-MM-DD",
             "days_active": 1, "sentiment": "positive|worry|tension|neutral",
             "note": "...",
+        }],
+        "resolved_keys": [{
+            "key": "<the OPEN_KEYS key that was resolved>",
+            "evidence": "<short paraphrase of what the journal text said>",
         }],
     }
     entries_text = "\n\n".join(
@@ -155,9 +206,14 @@ def build_user_message(now: datetime, window, prior_threads, source, boost_refer
         f"CATEGORY_ENUM: {json.dumps(sorted(CATEGORIES))}\n"
         "TODO STATUS: always the string \"pending\" (Hermes todo_tool schema; "
         "use field name `content` for the task text).\n"
-        f"EXACT OUTPUT SHAPE (fill reflection/todos/threads, keep the rest verbatim):\n"
+        f"EXACT OUTPUT SHAPE (fill reflection/todos/threads/resolved_keys, keep the rest "
+        f"verbatim):\n"
         f"{json.dumps(shape, indent=1)}\n\n"
         f"PRIOR_THREADS: {json.dumps(prior_threads)}\n\n"
+        f"OPEN_KEYS (reuse these exact keys if a task recurs — do not mint a new key for the "
+        f"same task):\n\n{json.dumps(open_keys, ensure_ascii=False)}\n\n"
+        f"CLOSED_KEYS (NEVER emit a todo whose key matches one of these, even if the task is "
+        f"mentioned again in the journal text):\n\n{json.dumps(closed_keys, ensure_ascii=False)}\n\n"
         f"REFERENCE_QUOTES (calibrate boost tone/intensity from these — see BOOST rules; "
         f"never copy verbatim):\n\n{boost_references}\n\n"
         f"JOURNAL ENTRIES (newest first):\n\n{entries_text}"
@@ -227,14 +283,15 @@ def generate(now: datetime, no_fetch: bool) -> dict:
     with open(PROMPT_PATH) as f:
         system_prompt = f.read()
     user_message = build_user_message(
-        now, window, load_prior_threads(), source, load_boost_references())
+        now, window, load_prior_threads(), source, load_boost_references(),
+        load_open_keys(), load_closed_keys())
 
     last_error = None
     for attempt in (1, 2):
         try:
             brief = call_claude(system_prompt, user_message, model)
             # Caller-owned fields are authoritative — stamp over model output.
-            brief["schema_version"] = "1.1"
+            brief["schema_version"] = "1.2"
             brief["for_date"] = now.date().isoformat()
             brief["generated_at"] = now.isoformat(timespec="seconds")
             brief["source"] = source
