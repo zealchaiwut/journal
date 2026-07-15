@@ -7,4 +7,5 @@ token.json
 inbox/
 logs/
 outputs/
+entries/cleaned/
 .morning-run.lock/

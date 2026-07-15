@@ -201,12 +201,12 @@ def append_day_entry(entry_date: str, msg_id: str, page_no: int,
     return entry_path
 
 
-def process_pdf(pdf_path: str, msg_id: str, email_date: date) -> int:
+def process_pdf(pdf_path: str, msg_id: str, email_date: date) -> tuple[int, set[str]]:
     """OCR the new pages of a PDF into per-date entry files.
 
-    Returns the number of new pages processed. Already-seen pages (tracked
-    by PNG hash in entries/.seen_pages.json) are skipped, which makes
-    whole-notebook resends cheap and duplicate-free.
+    Returns (number of new pages processed, entry dates touched). Already-seen
+    pages (tracked by PNG hash in entries/.seen_pages.json) are skipped, which
+    makes whole-notebook resends cheap and duplicate-free.
     """
     from ocr import get_backend
 
@@ -226,6 +226,7 @@ def process_pdf(pdf_path: str, msg_id: str, email_date: date) -> int:
     )
 
     current_date = None
+    dates_touched = set()
     for page_no, png, page_hash in new_pages:
         text = backend.ocr_image(png)
         parsed = extract_page_date(text, email_date)
@@ -245,13 +246,31 @@ def process_pdf(pdf_path: str, msg_id: str, email_date: date) -> int:
         entry_path = append_day_entry(entry_date, msg_id, page_no, page_hash, text)
         seen[page_hash] = {"date": entry_date, "msg": msg_id, "page": page_no}
         save_seen_pages(seen)
+        dates_touched.add(entry_date)
         log.info("Page %d -> %s", page_no, entry_path)
 
-    return len(new_pages)
+    return len(new_pages), dates_touched
 
 
-def process_message(service, msg: dict, label_id: str, gmail_client) -> bool:
-    """Handle one share email end-to-end. True if fully processed."""
+def run_clean_step(dates_touched: set[str]) -> None:
+    """Best-effort: revise each touched day's raw entry into clean bullet
+    points via journal_clean.py. A failure on one date (or all of them) never
+    blocks the fetch — the raw entry is already safely written."""
+    if not dates_touched:
+        return
+    import journal_clean
+
+    for entry_date in sorted(dates_touched):
+        try:
+            cleaned = journal_clean.clean_entry(entry_date)
+            dest = journal_clean.write_cleaned(entry_date, cleaned)
+            log.info("Cleaned entry written: %s", dest)
+        except Exception as e:
+            log.warning("Clean step failed for %s: %s", entry_date, e)
+
+
+def process_message(service, msg: dict, label_id: str, gmail_client) -> tuple[bool, set[str]]:
+    """Handle one share email end-to-end. (True if fully processed, dates touched)."""
     msg_id = msg["id"]
     subject = gmail_client.get_header(msg, "Subject")
     received = datetime.fromtimestamp(
@@ -263,18 +282,18 @@ def process_message(service, msg: dict, label_id: str, gmail_client) -> bool:
     url = extract_download_url(gmail_client.get_html_body(msg))
     if not url:
         log.error("No download link found in %s — leaving unprocessed", msg_id)
-        return False
+        return False, set()
 
     os.makedirs(INBOX_DIR, exist_ok=True)
     pdf_path = os.path.join(INBOX_DIR, f"{email_date}-{msg_id[:8]}.pdf")
     if os.path.exists(pdf_path):
         log.info("PDF already downloaded: %s", pdf_path)
     elif not download_pdf(url, pdf_path):
-        return False
+        return False, set()
 
-    process_pdf(pdf_path, msg_id, email_date)
+    _, dates_touched = process_pdf(pdf_path, msg_id, email_date)
     gmail_client.mark_processed(service, msg_id, label_id)
-    return True
+    return True, dates_touched
 
 
 def main() -> int:
@@ -299,8 +318,9 @@ def main() -> int:
         m = re.match(r"(\d{4}-\d{2}-\d{2})-(\w+)\.pdf", name)
         email_date = date.fromisoformat(m.group(1)) if m else datetime.now(BANGKOK).date()
         msg_id = m.group(2) if m else os.path.splitext(name)[0]
-        n = process_pdf(args.backfill, msg_id, email_date)
+        n, dates_touched = process_pdf(args.backfill, msg_id, email_date)
         log.info("Backfill complete: %d new page(s)", n)
+        run_clean_step(dates_touched)
         return 0
 
     import gmail_client
@@ -322,9 +342,12 @@ def main() -> int:
 
     label_id = gmail_client.ensure_label(service)
     ok = fail = 0
+    all_dates_touched = set()
     for msg in messages:
         try:
-            if process_message(service, msg, label_id, gmail_client):
+            processed, dates_touched = process_message(service, msg, label_id, gmail_client)
+            all_dates_touched |= dates_touched
+            if processed:
                 ok += 1
             else:
                 fail += 1
@@ -333,6 +356,7 @@ def main() -> int:
             fail += 1
 
     log.info("Run complete: %d processed, %d failed/skipped", ok, fail)
+    run_clean_step(all_dates_touched)
     return 0
 
 
