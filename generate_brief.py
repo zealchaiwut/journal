@@ -31,6 +31,7 @@ from brief_schema import (
 from journal_fetch import load_env, ENTRIES_DIR, REPO_DIR, BANGKOK
 
 PROMPT_PATH = os.path.join(REPO_DIR, "prompts", "journal_reflection.md")
+BOOST_REFERENCES_PATH = os.path.join(REPO_DIR, "prompts", "boost_references.md")
 
 log = logging.getLogger("generate_brief")
 
@@ -69,6 +70,13 @@ def load_window(window_size: int) -> list[tuple[str, str]]:
     return window
 
 
+def load_boost_references() -> str:
+    if not os.path.exists(BOOST_REFERENCES_PATH):
+        return ""
+    with open(BOOST_REFERENCES_PATH) as f:
+        return f.read()
+
+
 def load_prior_threads() -> list:
     latest = os.path.join(output_dir(), "journal_brief.latest.json")
     if not os.path.exists(latest):
@@ -93,7 +101,7 @@ def build_source(window: list[tuple[str, str]], model: str) -> dict:
 def empty_brief(now: datetime, source: dict) -> dict:
     """Valid brief for a fresh setup with no entries — never crash Hermes."""
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "for_date": now.date().isoformat(),
         "generated_at": now.isoformat(timespec="seconds"),
         "source": source,
@@ -105,6 +113,7 @@ def empty_brief(now: datetime, source: dict) -> dict:
                 "real reflection waiting here. A blank page today just means "
                 "the habit is about to start."
             ),
+            "boost": "何もない日から始まる。それでいいんだよ。",
             "word_count": 0,
         },
         "todos": [],
@@ -112,13 +121,17 @@ def empty_brief(now: datetime, source: dict) -> dict:
     }
 
 
-def build_user_message(now: datetime, window, prior_threads, source) -> str:
+def build_user_message(now: datetime, window, prior_threads, source, boost_references) -> str:
     shape = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "for_date": now.date().isoformat(),
         "generated_at": now.isoformat(timespec="seconds"),
         "source": source,
-        "reflection": {"title": "...", "markdown": "...", "word_count": 0},
+        "reflection": {
+            "title": "...", "markdown": "...",
+            "boost": "<ONE Japanese sentence, spoken register, see BOOST rules>",
+            "word_count": 0,
+        },
         "todos": [{
             "id": f"jrl-{now.date().isoformat()}-01",
             "content": "<cleaned imperative task — NOTE: field is `content`, not `text`>",
@@ -145,6 +158,8 @@ def build_user_message(now: datetime, window, prior_threads, source) -> str:
         f"EXACT OUTPUT SHAPE (fill reflection/todos/threads, keep the rest verbatim):\n"
         f"{json.dumps(shape, indent=1)}\n\n"
         f"PRIOR_THREADS: {json.dumps(prior_threads)}\n\n"
+        f"REFERENCE_QUOTES (calibrate boost tone/intensity from these — see BOOST rules; "
+        f"never copy verbatim):\n\n{boost_references}\n\n"
         f"JOURNAL ENTRIES (newest first):\n\n{entries_text}"
     )
 
@@ -211,14 +226,15 @@ def generate(now: datetime, no_fetch: bool) -> dict:
 
     with open(PROMPT_PATH) as f:
         system_prompt = f.read()
-    user_message = build_user_message(now, window, load_prior_threads(), source)
+    user_message = build_user_message(
+        now, window, load_prior_threads(), source, load_boost_references())
 
     last_error = None
     for attempt in (1, 2):
         try:
             brief = call_claude(system_prompt, user_message, model)
             # Caller-owned fields are authoritative — stamp over model output.
-            brief["schema_version"] = "1.0"
+            brief["schema_version"] = "1.1"
             brief["for_date"] = now.date().isoformat()
             brief["generated_at"] = now.isoformat(timespec="seconds")
             brief["source"] = source
