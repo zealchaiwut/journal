@@ -1,4 +1,4 @@
-"""Validation + normalization for the journal -> Hermes brief contract (v1.0).
+"""Validation + normalization for the journal -> Hermes brief contract (v1.1).
 
 Authoritative contract: docs/hermes_journal_brief.contract.md. Field names on
 todo items follow Hermes's native todo_tool schema (id / content / status,
@@ -81,8 +81,8 @@ def validate_brief(brief: dict) -> dict:
     """Raise BriefValidationError unless `brief` satisfies contract v1.0."""
     if not isinstance(brief, dict):
         _err("brief is not an object")
-    if brief.get("schema_version") != "1.0":
-        _err(f"schema_version must be '1.0', got {brief.get('schema_version')!r}")
+    if brief.get("schema_version") != "1.1":
+        _err(f"schema_version must be '1.1', got {brief.get('schema_version')!r}")
     _check_iso_date(brief.get("for_date"), "for_date")
     if not isinstance(brief.get("generated_at"), str) or "T" not in brief["generated_at"]:
         _err("generated_at must be an ISO8601 timestamp string")
@@ -104,6 +104,8 @@ def validate_brief(brief: dict) -> dict:
         _err("reflection.title must be a non-empty string")
     if not isinstance(reflection.get("markdown"), str) or not reflection["markdown"].strip():
         _err("reflection.markdown must be a non-empty string")
+    if not isinstance(reflection.get("boost"), str) or not reflection["boost"].strip():
+        _err("reflection.boost must be a non-empty string")
     if not isinstance(reflection.get("word_count"), int):
         _err("reflection.word_count must be an int")
 

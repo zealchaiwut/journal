@@ -1,4 +1,4 @@
-# Journal → Hermes brief contract (schema v1.0)
+# Journal → Hermes brief contract (schema v1.1)
 
 Interface between the **journal smart server** (this repo, runs on the mac mini)
 and the **Hermes lean client**. One JSON file:
@@ -14,7 +14,7 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "for_date": "2026-07-14",
   "generated_at": "2026-07-14T05:45:00+07:00",
   "source": {
@@ -26,6 +26,7 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
   "reflection": {
     "title": "Journal reflection — Tue 14 Jul",
     "markdown": "<ready-to-render, 150–220 words>",
+    "boost": "<ONE Japanese sentence, spoken register, grounded in today's entry>",
     "word_count": 180
   },
   "todos": [
@@ -59,11 +60,12 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
 
 | Field | Rule |
 |-------|------|
+| `reflection.boost` | one Japanese sentence, spoken register (セリフ) — not a translation of `markdown`, not motivational-poster copy; grounded in something concrete from today's entry |
 | `todos[].id` | unique, `jrl-<for_date>-NN` |
 | `todos[].content` | task text — **Hermes todo_tool field name** (not `text`) |
 | `todos[].status` | always `"pending"` — Hermes enum: pending / in_progress / completed / cancelled |
 | `todos[].category` | `bcg maguro perf-coach hermes trip finance health running cooking errands general` |
-| `todos[].priority` | `high medium low` — advisory; Hermes todo_tool has no priority field (list order = priority), so Hermes should insert high→top |
+| `todos[].priority` | `high medium low` — **urgency/deadline/blocking-ness only.** Recurrence does NOT raise priority — a task appearing on many unresolved days is `recurring: true`, not automatically `high`. Advisory; Hermes todo_tool has no priority field (list order = priority), so Hermes should insert high→top |
 | `todos[].confidence` | 0–1; server drops anything < 0.4 before publishing |
 | `todos[].due` / `defer_until` | optional ISO dates; omitted unless the journal named one |
 | `threads[].sentiment` | `positive worry tension neutral` |

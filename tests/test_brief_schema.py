@@ -17,13 +17,15 @@ from brief_schema import BriefValidationError, normalize_brief, validate_brief
 BANGKOK = timezone(timedelta(hours=7))
 
 VALID = {
-    "schema_version": "1.0",
+    "schema_version": "1.1",
     "for_date": "2026-07-14",
     "generated_at": "2026-07-14T05:45:00+07:00",
     "source": {"engine": "claude -p --model sonnet", "latest_entry": "2026-07-13",
                "window": ["2026-07-13", "2026-07-12"], "entry_count": 2},
     "reflection": {"title": "Journal reflection — Tue 14 Jul",
-                   "markdown": "You kept the streak going.", "word_count": 5},
+                   "markdown": "You kept the streak going.",
+                   "boost": "その調子でいいんだよ、俺が見てるから。",
+                   "word_count": 5},
     "todos": [{
         "id": "jrl-2026-07-14-01", "content": "Set up 2 BCG mock case trials",
         "category": "bcg", "priority": "high", "source_dates": ["2026-07-13"],
@@ -74,6 +76,12 @@ class TestValidate(unittest.TestCase):
 
     def test_rejects_bad_due_date(self):
         self._expect_fail(lambda b: b["todos"][0].update(due="soon"))
+
+    def test_rejects_missing_boost(self):
+        self._expect_fail(lambda b: b["reflection"].pop("boost"))
+
+    def test_rejects_empty_boost(self):
+        self._expect_fail(lambda b: b["reflection"].update(boost="  "))
 
 
 class TestNormalize(unittest.TestCase):
