@@ -152,10 +152,10 @@ def empty_brief(now: datetime, source: dict) -> dict:
         "reflection": {
             "title": f"Journal reflection — {now.strftime('%a %d %b')}",
             "markdown": (
-                "No journal entries in the window yet. Once tonight's page "
-                "lands from the Kindle Scribe, tomorrow's brief will have a "
-                "real reflection waiting here. A blank page today just means "
-                "the habit is about to start."
+                "- No journal entries in the window yet.\n"
+                "- Once tonight's page lands from the Kindle Scribe, "
+                "tomorrow's brief will have a real reflection here.\n"
+                "- A blank page today just means the habit is about to start."
             ),
             "boost": "何もない日から始まる。それでいいんだよ。",
             "word_count": 0,
