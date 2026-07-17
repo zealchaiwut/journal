@@ -25,7 +25,7 @@ into its own list (plain concat + dedupe by `id`). Hermes does no LLM work.
   },
   "reflection": {
     "title": "Journal reflection — Tue 14 Jul",
-    "markdown": "<ready-to-render, 150–220 words>",
+    "markdown": "<ready-to-render: 5–8 one-line bullets, final bullet = today's nudge>",
     "boost": "<ONE Japanese sentence, spoken register, grounded in today's entry>",
     "word_count": 180
   },
